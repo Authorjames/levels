@@ -48,6 +48,8 @@ net.Receive("levels", function(l, c)
 		end
 	elseif cmd == 2 then
 		if table.HasValue(levels.levels[level].players, me) then
+			levels_Level = false
+
 			for k, v in pairs(player.GetAll()) do
 				if v:GetNoDraw() then
 					v:SetNoDraw(false)
@@ -89,6 +91,10 @@ hook.Add("EntityEmitSound", "levels", function(data)
 	local ent = data.Entity
 	if ent and IsValid(ent) then
 		return ent:getLevel() == levels_Level
+	end
+
+	if levels_Level then
+		return false
 	end
 end)
 

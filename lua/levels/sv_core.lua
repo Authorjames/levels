@@ -56,6 +56,17 @@ hook.Add("ShouldCollide", "levels", function(ent1, ent2)
 	return ent1:getLevel() == ent2:getLevel()
 end)
 
+hook.Add("PlayerSpawnedProp", "levels", function(ply, model, ent)
+	local level = ply:getLevel()
+	if level then
+		levels.get(level):addEntity(ent)
+	end
+end)
+
+STATUS_AWAITING = 1
+STATUS_OPEN = 2
+STATUS_CLOSE = 3
+
 levels.new = function(name, index)
 	for k, v in pairs(levels.levels) do
 		if v.name == name then
@@ -70,6 +81,7 @@ levels.new = function(name, index)
 		players = {},
 		entities = {},
 		level = count,
+		status = STATUS_AWAITING,
 	}
 
 	levels.levels[count] = setmetatable(t, {
@@ -146,6 +158,8 @@ levels.new = function(name, index)
 	end
 
 	function level:open()
+		self.status = STATUS_OPEN
+
 		for k, v in pairs(self.entities) do
 			if v:GetCustomCollisionCheck() then
 				continue
@@ -189,6 +203,8 @@ levels.new = function(name, index)
 	end
 
 	function level:close()
+		self.status = STATUS_CLOSE
+
 		for k, ply in pairs(player.GetAll()) do
 			for k, ent in pairs(self.entities) do
 				ent:SetPreventTransmit(ply, false)
@@ -225,6 +241,10 @@ levels.new = function(name, index)
 	end
 
 	return level
+end
+
+levels.get = function(id)
+	return levels.levels[id]
 end
 
 local ply = FindMetaTable("Player")
