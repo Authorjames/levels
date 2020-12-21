@@ -1,136 +1,139 @@
-levels.levels = levels.levels or {}
+Level = Level or {
+    levels = {},
+}
 
-levels_Level = levels_Level or false
+net.Receive("LevelOpen", function(length)
+    local me = LocalPlayer()
+    local id = net.ReadInt(6)
+    local level = net.ReadTable()
 
-net.Receive("levels", function(l, c)
-	local cmd = net.ReadInt(6)
-	local level = net.ReadInt(6)
-	local me = LocalPlayer()
+    print("level opened", id)
+    PrintTable(level)
 
-	if cmd == 1 then
-		local levelobj = net.ReadTable()
-		levels.levels[level] = levelobj
+    for k, ply in pairs(level.players) do
+        ply:setLevel(id)
+    end
 
-		PrintTable(levelobj)
+    for k, ent in pairs(level.entities) do
+        ent:setLevel(id)
+    end
 
-		for k, v in pairs(levels.levels[level].entities) do
-			v.levels_Level = level
-		end
+    for k, ent in pairs(ents.GetAll()) do
+        if IsValid(ent) then
+            ent:SetNoDraw(ent:getLevel() != me:getLevel())
+        end
+    end
 
-		for k, v in pairs(player.GetAll()) do
-			if not table.HasValue(levels.levels[level].players, v) then
-				if table.HasValue(levels.levels[level].players, me) then
-					v:SetNoDraw(true)
-					v.levels_Solid = v:GetSolid()
-					v:SetSolid(SOLID_NONE)
-					for k, ent in pairs(v:GetWeapons()) do
-						ent:SetNoDraw(true)
-					end
-				end
-			else
-				v.levels_Level = level
-			end
-		end
+    for k, ply in pairs(player.GetAll()) do
+        if (ply:getLevel() != me:getLevel()) then
+            ply:SetNoDraw(true)
 
-		if not table.HasValue(levels.levels[level].players, me) then
-			for k, v in pairs(levels.levels[level].players) do
-				v:SetNoDraw(true)
-				v.levels_Solid = v:GetSolid()
-				v:SetSolid(SOLID_NONE)
-				for k, ent in pairs(v:GetWeapons()) do
-					ent:SetNoDraw(true)
-				end
-			end
-		end
+            ply.previousSolid = ply:GetSolid()
+            ply:SetSolid(SOLID_NONE)
 
-		if table.HasValue(levels.levels[level].players, me) then
-			levels_Level = level
-		end
-	elseif cmd == 2 then
-		if table.HasValue(levels.levels[level].players, me) then
-			levels_Level = false
+            for k, wep in pairs(ply:GetWeapons()) do
+                wep:SetNoDraw(true)
+            end
+        else
+            ply:SetNoDraw(false)
 
-			for k, v in pairs(player.GetAll()) do
-				if v:GetNoDraw() then
-					v:SetNoDraw(false)
-					v:SetSolid(v.levels_Solid)
-					for k, v in pairs(v:GetWeapons()) do
-						v:SetNoDraw(false)
-					end
-				end
-			end
-		end
+            if ply.previousSolid then
+                ply:SetSolid(ply.previousSolid)
+                ply.previousSolid = nil
+            end
 
-		for k, v in pairs(levels.levels[level].players) do
-			v.levels_Level = false
+            for k, wep in pairs(ply:GetWeapons()) do
+                wep:SetNoDraw(false)
+            end
+        end
+    end
 
-			if v:GetNoDraw() then
-				v:SetNoDraw(false)
-				v:SetSolid(v.levels_Solid)
-				for k, v in pairs(v:GetWeapons()) do
-					v:SetNoDraw(false)
-				end
-			end
-		end
-
-		levels.levels[level] = {}
-	end
+    Level.levels[id] = level
 end)
 
-local ply = FindMetaTable("Player")
-function ply:getLevel()
-	return self.levels_Level or false
-end
+net.Receive("levelClose", function(length)
+    local me = LocalPlayer()
+    local id = net.ReadInt(6)
+    local level = Level.levels[id]
 
-local ent = FindMetaTable("Entity")
-function ent:getLevel()
-	return self.levels_Level or false
-end
+    for k, ply in pairs(level.players) do
+        ply:setLevel(0)
+    end
 
-hook.Add("EntityEmitSound", "levels", function(data)
-	local ent = data.Entity
-	if ent and IsValid(ent) then
-		return ent:getLevel() == levels_Level
-	end
+    for k, ent in pairs(level.entities) do
+        ent:setLevel(0)
+    end
 
-	if levels_Level then
-		return false
-	end
+    for k, ent in pairs(ents.GetAll()) do
+        if IsValid(ent) then
+            ent:SetNoDraw(ent:getLevel() != me:getLevel())
+        end
+    end
+
+    for k, ply in pairs(player.GetAll()) do
+        if (ply:getLevel() == me:getLevel()) then
+            ply:SetNoDraw(false)
+
+            if ply.previousSolid then
+                ply:SetSolid(ply.previousSolid)
+                ply.previousSolid = nil
+            end
+
+            for k, wep in pairs(ply:GetWeapons()) do
+                wep:SetNoDraw(false)
+            end
+        else
+            ply:SetNoDraw(true)
+
+            ply.previousSolid = ply:GetSolid()
+            ply:SetSolid(SOLID_NONE)
+
+            for k, wep in pairs(ply:GetWeapons()) do
+                wep:SetNoDraw(true)
+            end
+        end
+    end
+
+    print("level closed", id)
+    Level.levels[id] = nil
 end)
 
-hook.Add("PlayerFootstep", "levels", function(ply, pos, foot, sound, volume, rf)
-	if ply:getLevel() and levels_Level then
-		return not (ply:getLevel() == levels_Level)
-	end
+net.Receive("levelUpdate", function(length)
+    local me = LocalPlayer()
+    local id = net.ReadInt(6)
+    local toAdd = net.ReadBool()
+    local ent = net.ReadEntity()
+
+    local level = Level.levels[id]
+
+    if (ent:IsPlayer()) then
+        if (toAdd) then
+            table.insert(level.players, ent)
+            ent:setLevel(id)
+        else
+            table.RemoveByValue(level.players, ent)
+            ent:setLevel(0)
+        end
+    else
+        if (toAdd) then
+            table.insert(level.entities, ent)
+            ent:setLevel(id)
+        else
+            table.RemoveByValue(level.entities, ent)
+            ent:setLevel(0)
+        end
+    end
+
+    for k, ent in pairs(ents.GetAll()) do
+        if IsValid(ent) and (not ent:GetOwner() == me) then
+            ent:SetNoDraw(ent:getLevel() != me:getLevel())
+        end
+    end
 end)
 
-function util.GetPlayerTrace( ply, dir )
-	dir = dir or ply:GetAimVector()
-
-	local trace = {}
-	
-	trace.start = ply:EyePos()
-	trace.endpos = trace.start + (dir * (4096 * 8))
-
-	local level = ply:getLevel()
-	if level then
-		if table.HasValue(levels.levels[level].players, ply) then
-			local t = {}
-			for k, v in pairs(player.GetAll()) do
-				if not table.HasValue(levels.levels[level].players, v) then
-					table.insert(t, v)
-				end
-			end
-
-			trace.filter = t
-		end
-	end
-
-	if trace.filter then
-		table.insert(trace.filter, ply)
-	else
-		trace.filter = ply
-	end
-	
-	return trace
-end
+net.Receive("Level Death", function(length)
+    local victim = net.ReadEntity()
+    
+    victim:EmitSound("Player.Death")
+    victim:EmitSound("common/null.wav")
+end)

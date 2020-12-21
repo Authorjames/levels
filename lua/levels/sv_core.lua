@@ -1,292 +1,218 @@
-util.AddNetworkString("levels")
+util.AddNetworkString("levelOpen");
+util.AddNetworkString("levelClose");
+util.AddNetworkString("levelUpdate");
+util.AddNetworkString("Level Death");
 
-hook.Add("PhysgunPickup", "levels", function(ply, ent)
-	if not (IsValid(ply) and IsValid(ent)) then
-		return
-	end
+Level = Level or {
+    levels = {}
+}
 
-	if ply:getLevel() != ent:getLevel() then
-		return false
-	end
-end)
-
-function util.GetPlayerTrace( ply, dir )
-	dir = dir or ply:GetAimVector()
-
-	local trace = {}
-	
-	trace.start = ply:EyePos()
-	trace.endpos = trace.start + (dir * (4096 * 8))
-
-	if level.players then
-		if table.HasValue(level.players, ply) then
-			local t = {}
-			for k, v in pairs(player.GetAll()) do
-				if not table.HasValue(level.players, v) then
-					table.insert(t, v)
-				end
-			end
-
-			trace.filter = t
-		end
-	end
-
-	if trace.filter then
-		table.insert(trace.filter, ply)
-	else
-		trace.filter = ply
-	end
-	
-	return trace
+function Level:__tostring()
+    return string.format("Level [%s][%s]", self.id, self.name)
 end
 
-hook.Add("PlayerShouldTakeDamage", "levels", function(ply, attacker)
-	if not (IsValid(ply) and IsValid(attacker)) then
-		return
-	end
+Level.createdLevels = 0;
 
-	return ply:getLevel() == attacker:getLevel()
-end)
+function Level:new(name)
+    if #self.levels == 0 then
+        Level.createdLevels = 0
+    end
 
-hook.Add("ShouldCollide", "levels", function(ent1, ent2)
-	if not (IsValid(ent1) and IsValid(ent2)) then
-		return
-	end
+    Level.createdLevels = Level.createdLevels + 1;
 
-	return ent1:getLevel() == ent2:getLevel()
-end)
+    local level = {
+        name = name,
+        entities = {},
+        players = {},
+        isOpen = false,
+        id = Level.createdLevels,
+    }
 
-hook.Add("PlayerSpawnedProp", "levels", function(ply, model, ent)
-	local level = ply:getLevel()
-	if level then
-		levels.get(level):addEntity(ent)
-	end
-end)
+    Level.levels[Level.createdLevels] = level
 
-STATUS_AWAITING = 1
-STATUS_OPEN = 2
-STATUS_CLOSE = 3
+    setmetatable(level, Level)
 
-levels.new = function(name, index)
-	for k, v in pairs(levels.levels) do
-		if v.name == name then
-			error("Level with same name already exists!")
-			return
-		end
-	end
-
-	local count = index or (table.Count(levels.levels) + 1)
-	local t = {
-		name = name,
-		players = {},
-		entities = {},
-		level = count,
-		status = STATUS_AWAITING,
-	}
-
-	levels.levels[count] = setmetatable(t, {
-		__index = t,
-		__tostring = function(t)
-			return "Level [" .. count .. "][" .. name .. "]"
-		end,
-	})
-
-	local level = levels.levels[count]
-
-	function level:addPlayer(ply)
-		if istable(ply) then
-			for k, v in pairs(ply) do
-				v.levels_Level = self.level
-				table.insert(self.players, v)
-			end
-
-			return
-		end
-
-		ply.levels_Level = self.level
-		table.insert(self.players, ply)
-	end
-
-	function level:addEntity(ent)
-		if istable(ent) then
-			for k, v in pairs(ent) do
-				v.levels_Level = self.level
-				table.insert(self.entities, v)
-			end
-
-			return
-		end
-
-		ent.levels_Level = self.level
-		table.insert(self.entities, ent)
-	end
-
-	function level:removePlayer(ply)
-		if istable(ply) then
-			for k, v in pairs(ply) do
-				v.levels_Level = false
-				table.RemoveByValue(self.players, v)
-			end
-
-			return
-		end
-
-		ply.levels_Level = false
-		table.RemoveByValue(self.players, ply)
-	end
-
-	function level:removeEntity(ent)
-		if istable(ent) then
-			for k, v in pairs(ent) do
-				v.levels_Level = false
-				table.RemoveByValue(self.entities, v)
-			end
-
-			return
-		end
-
-		ent.levels_Level = false
-		table.RemoveByValue(self.entities, ent)
-	end
-
-	function level:getPlayers()
-		return self.players
-	end
-
-	function level:getEntities()
-		return self.entities
-	end
-
-	function level:open()
-		self.status = STATUS_OPEN
-
-		for k, v in pairs(self.entities) do
-			if v:GetCustomCollisionCheck() then
-				continue
-			end
-
-			v:SetCustomCollisionCheck(true)
-			v.levels_DisableCollisionCheck = true
-		end
-
-		for k, ply in pairs(player.GetAll()) do
-			if not (ply:getLevel() == self.level) then
-				for k, ent in pairs(self.entities) do
-					ent:SetPreventTransmit(ply, true)
-				end
-			end
-		end
-
-		for k, v in pairs(self.players) do
-			v:SetAvoidPlayers(false)
-
-			if v:GetCustomCollisionCheck() then
-				continue
-			end
-
-			v:SetCustomCollisionCheck(true)
-			v.levels_DisableCollisionCheck = true
-		end
-
-		local t = {}
-		for k, v in pairs(self) do
-			if not isfunction(v) then
-				t[k] = v
-			end
-		end
-
-		net.Start("levels")
-		net.WriteInt(1, 6)
-		net.WriteInt(self.level, 6)
-		net.WriteTable(t)
-		net.Broadcast()
-	end
-
-	function level:close()
-		self.status = STATUS_CLOSE
-
-		for k, ply in pairs(player.GetAll()) do
-			for k, ent in pairs(self.entities) do
-				ent:SetPreventTransmit(ply, false)
-			end
-		end
-
-		for k, v in pairs(self.entities) do
-			v.levels_Level = nil
-			if v.levels_DisableCollisionCheck then
-				v:SetCustomCollisionCheck(false)
-			end
-		end
-
-		for k, ply1 in pairs(self.players) do
-			ply1.levels_Level = nil
-
-			for k, ply2 in pairs(player.GetAll()) do
-				ply2:SetPreventTransmit(ply1, false)
-			end
-		end
-
-		for k, v in pairs(self.players) do
-			if v.levels_DisableCollisionCheck then
-				v:SetCustomCollisionCheck(false)
-			end
-		end
-
-		net.Start("levels")
-		net.WriteInt(2, 6)
-		net.WriteInt(self.level, 6)
-		net.Broadcast()
-
-		levels.levels[self.level] = nil
-	end
-
-	return level
+    return level
 end
 
-levels.get = function(id)
-	return levels.levels[id]
+function Level:addEntity(ent)
+    ent = istable(ent) and ent or {ent}
+    for k, v in pairs(ent) do
+        table.insert(self.entities, v)
+
+        if self.isOpen then
+            v:activateLevel(self)
+            self:update(true, v)
+        end
+    end
 end
 
-local ply = FindMetaTable("Player")
-function ply:getLevel()
-	return self.levels_Level or false
+function Level:addPlayer(ply)
+    ply = istable(ply) and ply or {ply}
+    for k, v in pairs(ply) do
+        local level = Level.getLevel(v:getLevel())
+        if (level) then
+            level:removePlayer(v)
+        end
+
+        for j, ent in pairs(v:GetChildren()) do
+            if IsValid(ent) then
+                self:addEntity(ent)
+            end
+        end
+
+        table.insert(self.players, v)
+
+        if self.isOpen then
+            v:activateLevel(self)
+            self:update(true, v)
+        end
+    end
 end
 
-local ent = FindMetaTable("Entity")
-function ent:getLevel()
-	return self.levels_Level or false
+function Level:removeEntity(ent)
+    ent:deactivateLevel(self)
+
+    table.RemoveByValue(self.entities, ent)
+
+    if self.isOpen then
+        self:update(false, ent)
+    end
 end
 
-function IsValidPlayer(...)
-	local args = {...}
-	for k, v in pairs(args) do
-		if IsValid(v) then
-			if v:IsPlayer() then
-				continue
-			end
+function Level:removePlayer(ply)
+    ply:deactivateLevel(self)
 
-			return false
-		end
+    for j, ent in pairs(ply:GetChildren()) do
+        if IsValid(ent) then
+            self:removeEntity(ent)
+        end
+    end
 
-		return false
-	end
+    table.RemoveByValue(self.players, ply)
 
-	return true
+    if self.isOpen then
+        self:update(false, ply)
+    end
 end
 
-levels.levels = {}
+function Level:open()
+    print("open level", self)
 
-concommand.Add("test", function()
-	local level = levels.new("test")
-	level:addPlayer({player.GetByID(1), player.GetByID(2)})
-	level:removePlayer(player.GetByID(2))
-	level:addEntity(ents.FindByClass("prop_physics"))
+    self.isOpen = true;
+
+    for k, ply in pairs(self.players) do
+        ply:activateLevel(self)
+    end
+
+    for k, ent in pairs(self.entities) do
+        ent:activateLevel(self)
+    end
+
+    net.Start("levelOpen")
+    net.WriteInt(self.id, 6)
+    net.WriteTable(table.removef(self))
+    net.Broadcast()
+end
+
+function Level:close()
+    print("close level", self)
+
+    PrintTable(Level.getLevel(self.id))
+
+    for k, v in pairs(self.entities) do
+        if not IsValid(v) then
+            self.entities[k] = nil
+        end
+    end
+
+    for k, ply in pairs(player.GetAll()) do
+        if ply:getLevel() != self.id then
+            for k, ent in pairs(self.entities) do
+                ent:SetPreventTransmit(ply, false)
+            end
+        end
+    end
+
+    for k, ply in pairs(self.players) do
+        ply:deactivateLevel(self)
+    end
+
+    for k, ent in pairs(self.entities) do
+        ent:deactivateLevel(self)
+    end
+
+    net.Start("levelClose")
+    net.WriteInt(self.id, 6)
+    net.Broadcast()
+
+    table.remove(Level.levels, self.id)
+end
+
+function Level:update(toAdd, ent)
+    net.Start("levelUpdate")
+    net.WriteInt(self.id, 6)
+    net.WriteBool(toAdd)
+    net.WriteEntity(ent)
+    net.Broadcast()
+end
+
+function Level.getLevel(id)
+    return Level.levels[id]
+end
+
+function Level.getLevels()
+    return Level.levels
+end
+
+setmetatable(Level, {
+    __call = Level.new,
+})
+
+Level.__index = Level
+
+/*
+    Test
+*/
+concommand.Add("level_start", function()
+	local level = Level("test")
+    print(level)
+	level:addPlayer(player.GetByID(1))
+	//level:addEntity(ents.FindByClass("prop_physics")[6])
 	level:open()
+end)
 
-	PrintTable(levels.levels)
+concommand.Add("level_stop", function(ply, cmd, args)
+    local level = Level.getLevel(tonumber(args[1])) or Level.getLevel(ply:getLevel())
+    
+    if level then
+        level:close()
+        level = nil
+    end
+end)
 
-	timer.Simple(5, function()
-		level:close()
-		level = nil
-	end)
+concommand.Add("level_transfer", function(ply, cmd, args)
+    local oldLevel = Level.getLevel(ply:getLevel())
+    local newLevel = Level.getLevel(tonumber(args[1]))
+    print(oldLevel, newLevel)
+
+    if (oldLevel) then
+        oldLevel:removePlayer(ply)
+    end
+
+    if (newLevel) then
+        newLevel:addPlayer(ply)
+    end
+end)
+
+concommand.Add("level_list", function()
+    //PrintTable(Level.getLevels())
+end)
+
+concommand.Add("level_leave", function(ply)
+    local level = Level.getLevel(ply:getLevel())
+    
+    if level then
+        level:removePlayer(ply)
+    end
 end)
